@@ -113,10 +113,6 @@ networkPolicy:
   egress:
   - {}
 
-psp:
-  enabled: false
-  name: ""
-
 # Override the excluded namespaces
 excludedNamespaces:
 
@@ -128,7 +124,7 @@ excludedNamespaces:
 #         fsGroup: <-- here
 securityContext:
   fsGroup:
-  
+
 # Set node tolerations for snyk-monitor
 tolerations: []
 
@@ -151,3 +147,20 @@ sysdig:
 
 strategy:
   type: RollingUpdate
+
+# Additional volumes for the deployment, available to all containers
+extraVolumes: []
+#  - name: my-empty-dir
+#    emptyDir: {}
+
+# Additional volume mounts for the snyk-monitor container
+extraVolumeMounts: []
+#  - name: extras
+#    mountPath: /mnt/my-empty-dir
+#    readOnly: true
+
+# Additional init containers, templated
+extraInitContainers: []
+#  - name: wait-for-condition
+#    image: "{{ .Values.initContainerImage.repository }}:{{ .Values.initContainerImage.tag }}"
+#    command: ['sh', '-c', 'sleep 10 || :']

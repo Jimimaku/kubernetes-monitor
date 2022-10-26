@@ -29,8 +29,9 @@ async function teardown(): Promise<void> {
   console.log('Removed "kind" network');
 }
 
-beforeAll(teardown);
 afterAll(teardown);
+
+test('clean up environment on start', teardown);
 
 // Make sure this runs first -- deploying the monitor for the next tests
 test('deploy snyk-monitor', async () => {
@@ -323,6 +324,7 @@ test('snyk-monitor sends data to kubernetes-upstream', async () => {
         facts: expect.any(Array),
         target: { image: 'docker-image|argoproj/rollouts-demo' },
       },
+      expect.any(Object),
     ]);
   }
 });
@@ -728,18 +730,6 @@ test('snyk-monitor has nodeSelector', async () => {
   expect(spec).toEqual(
     expect.objectContaining({ nodeSelector: expect.any(Object) }),
   );
-});
-
-test('snyk-monitor has PodSecurityPolicy', async () => {
-  if (process.env['DEPLOYMENT_TYPE'] !== 'Helm') {
-    console.log(
-      "Not testing PodSecurityPolicy because we're not installing with Helm",
-    );
-    return;
-  }
-
-  const pspExists = await kubectl.verifyPodSecurityPolicy('snyk-monitor');
-  expect(pspExists).toBeTruthy();
 });
 
 test('snyk-monitor secure configuration is as expected', async () => {

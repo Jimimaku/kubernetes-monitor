@@ -36,16 +36,19 @@ The Snyk Integration ID is used in the `--from-literal=integrationId=` parameter
 Create a file named `dockercfg.json`. Store your credentials in there; it should look like this:
 
 ```hjson
+// If your cluster does not run on GKE or it runs on GKE and pulls images from other private registries, add the following:
 {
-  // If your cluster does not run on GKE or it runs on GKE and pulls images from other private registries, add the following:
   "auths": {
     "gcr.io": {
       "auth": "BASE64-ENCODED-AUTH-DETAILS"
     }
     // Add other registries as necessary
-  },
-  
-  // If your cluster runs on GKE and you are using GCR, add the following:
+  }
+}
+```
+```hjson
+// If your cluster runs on GKE and you are using GCR, add the following:
+{
   "credHelpers": {
     "us.gcr.io": "gcloud",
     "asia.gcr.io": "gcloud",
@@ -54,22 +57,23 @@ Create a file named `dockercfg.json`. Store your credentials in there; it should
     "eu.gcr.io": "gcloud",
     "staging-k8s.gcr.io": "gcloud"
   }
-  
-  // If your cluster runs on EKS and you are using ECR, add the following:
-  {
-	"credsStore": "ecr-login"
-  }
-  
-  With Docker 1.13.0 or greater, you can configure Docker to use different credential helpers for different registries.
-  To use this credential helper for a specific ECR registry, create a credHelpers section with the URI of your ECR registry:
-  
-  {
-	"credHelpers": {
-		"public.ecr.aws": "ecr-login",
-		"<aws_account_id>.dkr.ecr.<region>.amazonaws.com": "ecr-login"
-	}
-  }
+}
+```
+```hjson
+// If your cluster runs on EKS and you are using ECR, add the following:
+{
+  "credsStore": "ecr-login"
+}
+```
 
+```hjson
+// You can configure different credential helpers for different registries. 
+// To use this credential helper for a specific ECR registry, create a credHelpers section with the URI of your ECR registry:
+{
+  "credHelpers": {
+    "public.ecr.aws": "ecr-login",
+    "<aws_account_id>.dkr.ecr.<region>.amazonaws.com": "ecr-login"
+  }
 }
 ```
 Finally, create the secret in Kubernetes by running the following command:
@@ -86,7 +90,7 @@ kubectl create configmap snyk-monitor-certs -n snyk-monitor --from-file=<path_to
 
 Create a file named `registries.conf`, see example adding an insecure registry: 
 
-```
+```conf
 [[registry]]
 location = "internal-registry-for-example.net/bar"
 insecure = true
@@ -105,10 +109,16 @@ Add the latest version of Snyk's Helm repo:
 helm repo add snyk-charts https://snyk.github.io/kubernetes-monitor/ --force-update
 ```
 
+Note that the Snyk monitor has **read-only** access to workloads in the cluster and will never interfere with other applications. The exact permissions requested by the monitor can be seen in the [ClusterRole](./templates/clusterrole.yaml) or [Role](./templates/role.yaml).
+
+### Installation and monitoring of the whole cluster
+
 Run the following command to launch the Snyk monitor in your cluster:
 
 ```shell
-helm upgrade --install snyk-monitor snyk-charts/snyk-monitor --namespace snyk-monitor --set clusterName="Production cluster"
+helm upgrade --install snyk-monitor snyk-charts/snyk-monitor \
+  --namespace snyk-monitor \
+  --set clusterName="Production cluster"
 ```
 
 To better organise the data scanned inside your cluster, the monitor requires a cluster name to be set.
@@ -116,9 +126,20 @@ Replace the value of `clusterName` with the name of your cluster.
 
 **Please note that `/` in cluster name is disallowed. Any `/` in cluster names will be removed.**
 
+### Installation and monitoring of a single namespace
+
+The Snyk monitor can be configured to monitor only the namespace in which it is installed instead of the whole cluster:
+
+```shell
+helm upgrade --install snyk-monitor snyk-charts/snyk-monitor \
+  --namespace some-ns-to-be-monitored \ # Note: ensure your snyk-monitor secret exists here
+  --set scope=Namespaced \ # Monitor only the current namespace
+  --set clusterName="Production cluster"
+```
+
 ## Upgrades ##
 
-You can apply the latest version of the YAML installation files to upgrade.
+You can apply the latest version of the Helm chart to upgrade.
 
 If you would like to reuse the last release's values and merge in any overrides from the command line via --set and -f, you can use the option `--reuse-values`. For example:
 ```bash
@@ -220,21 +241,6 @@ For example, run the following for first-time setup:
 And run the following for subsequent upgrades:
 `--set pvc.enabled=true`
 
-## PodSecurityPolicies
-**This should not be used when installing on OpenShift.**
-
-Using PodSecurityPolicies can be achieved by setting the following values in the Helm chart:
-* psp.enabled - default is `false`. Set to `true` if PodSecurityPolicy is needed
-* psp.name - default is empty. Leave it empty if you want us to install the necessary PodSecurityPolicy. Modify it to specify an existing PodSecurityPolicy rather than creating a new one.
-
-For example:
-```shell
-helm upgrade --install snyk-monitor snyk-charts/snyk-monitor \
-  --namespace snyk-monitor \
-  --set clusterName="Production cluster" \
-  --set psp.enabled=true
-```
-
 ## Configuring excluded namespaces ##
 
 By default, `snyk-monitor` does not scan containers that are internal to Kubernetes, in the following namespaces:
@@ -277,7 +283,57 @@ You can provide custom CA certificates to use for validating TLS connections by 
 
 If running Snyk on-prem, you can also use a custom CA certificate to validate the connection to kubernetes-upstream for sending scan results by providing the certificate under the following path in the ConfigMap: /srv/app/certs/ca.pem
 
+## Helm chart extensibility ##
+
+### Additional Kubernetes volumes and volume mounts ###
+
+The helm chart supports mounting custom volumes in addition to the built-in ones through the use of `extraVolumes` and `extraVolumeMounts`.
+
+**Note** that `extraVolumes` are available to all containers in the snyk-monitor deployment (including any init containers), whilst `extraVolumeMounts` applies only to the main snyk-monitor container.
+
+#### Example ####
+
+Let's say you need to mount in an additional kubernetes secret that is created outside of the snyk-monitor chart. You would define the following in your `values.yaml`:
+
+```yaml
+extraVolumes:
+  # this volume will be available to all containers in the deployment
+  - name: "my-k8s-secret"
+    secret:
+      secretName: "name-of-my-k8s-secret-resource" # kubernetes secret created elsewhere
+
+extraVolumeMounts:
+  # this mounts the kubernetes secret into the main snyk-monitor container
+  - mountPath: "/mnt/additional-secrets"
+    name: "my-k8s-secret"
+    readOnly: true
+```
+
+### Additional init containers ###
+
+The helm chart supports specifying additional init containers that will run before the main snyk-monitor container through the use of `extraInitContainers`. This field is templated ie. Helm will parse any helm template directives within the specification.
+
+#### Example ####
+
+Continuing on with the example above for additional volumes, let's say you need to have a secret copied into a specific path in the main snyk-monitor container before it is started. You would define the following in your `values.yaml`:
+
+```yaml
+extraInitContainers:
+  - name: install-my-secret
+    # notice how the image specification is templated. This would result in running the same
+    # image as the built-in 'volume-permissions' init container.
+    image: "{{ .Values.initContainerImage.repository }}:{{ .Values.initContainerImage.tag }}"
+    command: ['sh', '-c', 'cp -f /mnt/my-secrets/my-secret /srv/app/my-secret || :']
+    volumeMounts:
+      # this brings the kubernetes secret from the previous example into this init container
+      - mountPath: "/mnt/my-secrets"
+        name: "my-k8s-secret"
+        readOnly: true
+```
+
 ## Terms and conditions ##
+
+Note that these terms and conditions apply when installing the Snyk Certified Red Hat Marketplace Operator, which uses Red Hat UBI.
 
 *The Snyk Container Kubernetes integration uses Red Hat UBI (Universal Base Image).*
 

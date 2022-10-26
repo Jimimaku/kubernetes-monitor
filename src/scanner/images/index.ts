@@ -23,6 +23,7 @@ const statAsync = promisify(stat);
 */
 async function pullImageBySkopeoRepo(
   imageToPull: IPullableImage,
+  workloadName: string,
 ): Promise<IPullableImage> {
   // Scan image by digest if exists, other way fallback tag
   const scanId = imageToPull.imageWithDigest ?? imageToPull.imageName;
@@ -30,12 +31,14 @@ async function pullImageBySkopeoRepo(
     scanId,
     imageToPull.fileSystemPath,
     imageToPull.skopeoRepoType,
+    workloadName,
   );
   return imageToPull;
 }
 
 export async function pullImages(
   images: IPullableImage[],
+  workloadName: string,
 ): Promise<IPullableImage[]> {
   const pulledImages: IPullableImage[] = [];
   for (const image of images) {
@@ -43,7 +46,7 @@ export async function pullImages(
       continue;
     }
     try {
-      const pulledImage = await pullImageBySkopeoRepo(image);
+      const pulledImage = await pullImageBySkopeoRepo(image, workloadName);
       pulledImages.push(pulledImage);
     } catch (error) {
       logger.error(
@@ -115,13 +118,11 @@ export async function scanImages(
 
   for (const { imageName, fileSystemPath, imageWithDigest } of images) {
     try {
-      const shouldIncludeAppVulns = true;
       const archivePath = `docker-archive:${fileSystemPath}`;
 
       const pluginResponse = await scan({
         path: archivePath,
         imageNameAndTag: imageName,
-        'app-vulns': shouldIncludeAppVulns,
       });
 
       if (
